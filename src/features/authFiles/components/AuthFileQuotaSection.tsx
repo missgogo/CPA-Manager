@@ -33,10 +33,11 @@ export type AuthFileQuotaSectionProps = {
   file: AuthFileItem;
   quotaType: QuotaProviderType;
   disableControls: boolean;
+  onQuotaChanged?: () => void | Promise<void>;
 };
 
 export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
-  const { file, quotaType, disableControls } = props;
+  const { file, quotaType, disableControls, onQuotaChanged } = props;
   const { t } = useTranslation();
   const showNotification = useNotificationStore((state) => state.showNotification);
 
@@ -82,6 +83,7 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
         ...prev,
         [file.name]: config.buildSuccessState(data)
       }));
+      void onQuotaChanged?.();
       showNotification(t('auth_files.quota_refresh_success', { name: file.name }), 'success');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('common.unknown_error');
@@ -90,9 +92,10 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
         ...prev,
         [file.name]: config.buildErrorState(message, status)
       }));
+      void onQuotaChanged?.();
       showNotification(t('auth_files.quota_refresh_failed', { name: file.name, message }), 'error');
     }
-  }, [disableControls, file, quota?.status, quotaType, showNotification, t, updateQuotaState]);
+  }, [disableControls, file, onQuotaChanged, quota?.status, quotaType, showNotification, t, updateQuotaState]);
 
   const config = getQuotaConfig(quotaType) as unknown as {
     i18nPrefix: string;

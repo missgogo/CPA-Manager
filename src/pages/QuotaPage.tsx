@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
+import { useQuotaCacheService } from '@/hooks/useQuotaCacheService';
 import { useAuthStore } from '@/stores';
 import { authFilesApi, configFileApi } from '@/services/api';
 import { Input } from '@/components/ui/Input';
@@ -25,6 +26,10 @@ import styles from './QuotaPage.module.scss';
 export function QuotaPage() {
   const { t } = useTranslation();
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
+  const { hydrateQuotaCache, persistQuotaCache } = useQuotaCacheService();
+  const persistQuotaCacheVoid = useCallback(async () => {
+    await persistQuotaCache();
+  }, [persistQuotaCache]);
 
   const [files, setFiles] = useState<AuthFileItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,7 +80,10 @@ export function QuotaPage() {
   useEffect(() => {
     loadFiles();
     loadConfig();
-  }, [loadFiles, loadConfig]);
+    if (connectionStatus === 'connected') {
+      void hydrateQuotaCache().catch(() => {});
+    }
+  }, [connectionStatus, hydrateQuotaCache, loadConfig, loadFiles]);
 
   return (
     <div className={styles.container}>
@@ -119,6 +127,7 @@ export function QuotaPage() {
         disabled={disableControls}
         searchQuery={searchQuery}
         sortMode={sortMode}
+        onQuotaChanged={persistQuotaCacheVoid}
       />
       <QuotaSection
         config={CLAUDE_CONFIG}
@@ -127,6 +136,7 @@ export function QuotaPage() {
         disabled={disableControls}
         searchQuery={searchQuery}
         sortMode={sortMode}
+        onQuotaChanged={persistQuotaCacheVoid}
       />
       <QuotaSection
         config={ANTIGRAVITY_CONFIG}
@@ -135,6 +145,7 @@ export function QuotaPage() {
         disabled={disableControls}
         searchQuery={searchQuery}
         sortMode={sortMode}
+        onQuotaChanged={persistQuotaCacheVoid}
       />
       <QuotaSection
         config={GEMINI_CLI_CONFIG}
@@ -143,6 +154,7 @@ export function QuotaPage() {
         disabled={disableControls}
         searchQuery={searchQuery}
         sortMode={sortMode}
+        onQuotaChanged={persistQuotaCacheVoid}
       />
       <QuotaSection
         config={KIMI_CONFIG}
@@ -151,6 +163,7 @@ export function QuotaPage() {
         disabled={disableControls}
         searchQuery={searchQuery}
         sortMode={sortMode}
+        onQuotaChanged={persistQuotaCacheVoid}
       />
     </div>
   );

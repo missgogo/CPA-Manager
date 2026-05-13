@@ -84,6 +84,7 @@ import { MonitoringPanel } from '@/features/monitoring/components/MonitoringPane
 import { useUsageData } from '@/features/monitoring/hooks/useUsageData';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useInterval } from '@/hooks/useInterval';
+import { useQuotaCacheService } from '@/hooks/useQuotaCacheService';
 import { apiCallApi, authFilesApi, getApiCallErrorMessage } from '@/services/api';
 import { useAuthStore, useConfigStore, useNotificationStore, useQuotaStore } from '@/stores';
 import type {
@@ -1855,6 +1856,7 @@ export function MonitoringCenterPage() {
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
   const showNotification = useNotificationStore((state) => state.showNotification);
   const showConfirmation = useNotificationStore((state) => state.showConfirmation);
+  const { hydrateQuotaCache, persistQuotaCache } = useQuotaCacheService();
   const [timeRange, setTimeRange] = useState<MonitoringTimeRange>('today');
   const [customStartInput, setCustomStartInput] = useState(getTodayStartInputValue);
   const [customEndInput, setCustomEndInput] = useState(getCurrentInputValue);
@@ -2015,6 +2017,11 @@ export function MonitoringCenterPage() {
   useEffect(() => {
     accountQuotaStatesRef.current = accountQuotaStates;
   }, [accountQuotaStates]);
+
+  useEffect(() => {
+    if (connectionStatus !== 'connected') return;
+    void hydrateQuotaCache().catch(() => {});
+  }, [connectionStatus, hydrateQuotaCache]);
 
   useEffect(() => {
     writeAccountOverviewUiState({
@@ -2477,6 +2484,7 @@ export function MonitoringCenterPage() {
           },
         } satisfies Record<string, AccountQuotaState>;
         setAccountQuotaStates(() => nextState);
+        void persistQuotaCache();
         return;
       }
 
@@ -2517,8 +2525,9 @@ export function MonitoringCenterPage() {
         },
       } satisfies Record<string, AccountQuotaState>;
       setAccountQuotaStates(() => nextState);
+      void persistQuotaCache();
     },
-    [accountQuotaTargetsByAccount, setAccountQuotaStates, t]
+    [accountQuotaTargetsByAccount, persistQuotaCache, setAccountQuotaStates, t]
   );
 
   const toggleAccountExpanded = useCallback(

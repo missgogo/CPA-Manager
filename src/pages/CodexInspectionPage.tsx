@@ -35,6 +35,7 @@ import {
   type CodexInspectionRunResult,
   type CodexInspectionSession,
 } from '@/features/monitoring/codexInspection';
+import { useQuotaCacheService } from '@/hooks/useQuotaCacheService';
 import { useAuthStore, useConfigStore, useNotificationStore, useQuotaStore } from '@/stores';
 import styles from './CodexInspectionPage.module.scss';
 
@@ -200,6 +201,7 @@ export function CodexInspectionPage() {
   const showNotification = useNotificationStore((state) => state.showNotification);
   const showConfirmation = useNotificationStore((state) => state.showConfirmation);
   const setCodexQuota = useQuotaStore((state) => state.setCodexQuota);
+  const { persistQuotaCache } = useQuotaCacheService();
 
   const [inspectionSettings, setInspectionSettings] = useState<CodexInspectionConfigurableSettings>(() =>
     loadCodexInspectionConfigurableSettings(config)
@@ -259,8 +261,9 @@ export function CodexInspectionPage() {
         });
         return next;
       });
+      void persistQuotaCache();
     },
-    [setCodexQuota]
+    [persistQuotaCache, setCodexQuota]
   );
 
   const scrollLogsToBottom = useCallback(() => {

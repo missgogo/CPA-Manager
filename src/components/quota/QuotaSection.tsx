@@ -109,6 +109,7 @@ interface QuotaSectionProps<TState extends QuotaStatusState, TData> {
   disabled: boolean;
   searchQuery?: string;
   sortMode?: QuotaSortMode;
+  onQuotaChanged?: () => void | Promise<void>;
 }
 
 export function QuotaSection<TState extends QuotaStatusState, TData>({
@@ -117,7 +118,8 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
   loading,
   disabled,
   searchQuery = '',
-  sortMode = 'default'
+  sortMode = 'default',
+  onQuotaChanged,
 }: QuotaSectionProps<TState, TData>) {
   const { t } = useTranslation();
   const resolvedTheme: ResolvedTheme = useThemeStore((state) => state.resolvedTheme);
@@ -253,8 +255,10 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
     const scope = effectiveViewMode === 'all' ? 'all' : 'page';
     const targets = effectiveViewMode === 'all' ? displayFiles : pageItems;
     if (targets.length === 0) return;
-    loadQuota(targets, scope, setLoading);
-  }, [loading, effectiveViewMode, displayFiles, pageItems, loadQuota, setLoading]);
+    void loadQuota(targets, scope, setLoading).then(() => {
+      void onQuotaChanged?.();
+    });
+  }, [loading, effectiveViewMode, displayFiles, pageItems, loadQuota, onQuotaChanged, setLoading]);
 
   useEffect(() => {
     if (loading) return;
@@ -290,6 +294,7 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
           ...prev,
           [file.name]: config.buildSuccessState(data)
         }));
+        void onQuotaChanged?.();
         showNotification(t('auth_files.quota_refresh_success', { name: file.name }), 'success');
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : t('common.unknown_error');
@@ -298,13 +303,14 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
           ...prev,
           [file.name]: config.buildErrorState(message, status)
         }));
+        void onQuotaChanged?.();
         showNotification(
           t('auth_files.quota_refresh_failed', { name: file.name, message }),
           'error'
         );
       }
     },
-    [config, disabled, quota, setQuota, showNotification, t]
+    [config, disabled, onQuotaChanged, quota, setQuota, showNotification, t]
   );
 
   const titleNode = (

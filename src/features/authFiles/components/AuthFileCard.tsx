@@ -47,6 +47,7 @@ export type AuthFileCardProps = {
   statusUpdating: Record<string, boolean>;
   quotaFilterType: QuotaProviderType | null;
   statusBarCache: Map<string, AuthFileStatusBarData>;
+  onQuotaChanged?: () => void | Promise<void>;
   onShowModels: (file: AuthFileItem) => void;
   onDownload: (name: string) => void;
   onOpenPrefixProxyEditor: (file: AuthFileItem) => void;
@@ -73,6 +74,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
     statusUpdating,
     quotaFilterType,
     statusBarCache,
+    onQuotaChanged,
     onShowModels,
     onDownload,
     onOpenPrefixProxyEditor,
@@ -234,6 +236,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
                 file={file}
                 quotaType={quotaType}
                 disableControls={disableControls}
+                onQuotaChanged={onQuotaChanged}
               />
             )}
           </div>

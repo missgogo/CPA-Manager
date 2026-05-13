@@ -18,6 +18,7 @@ import type { AuthFileItem, CodexQuotaState } from '@/types';
 import { useInterval } from '@/hooks/useInterval';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
+import { useQuotaCacheService } from '@/hooks/useQuotaCacheService';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -168,6 +169,10 @@ export function AuthFilesPage() {
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
   const resolvedTheme: ResolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const codexQuota = useQuotaStore((state) => state.codexQuota);
+  const { hydrateQuotaCache, persistQuotaCache } = useQuotaCacheService();
+  const persistQuotaCacheVoid = useCallback(async () => {
+    await persistQuotaCache();
+  }, [persistQuotaCache]);
   const pageTransitionLayer = usePageTransitionLayer();
   const isCurrentLayer = pageTransitionLayer ? pageTransitionLayer.status === 'current' : true;
   const navigate = useNavigate();
@@ -325,6 +330,11 @@ export function AuthFilesPage() {
 
     setUiStateHydrated(true);
   }, []);
+
+  useEffect(() => {
+    if (connectionStatus !== 'connected') return;
+    void hydrateQuotaCache().catch(() => {});
+  }, [connectionStatus, hydrateQuotaCache]);
 
   useEffect(() => {
     if (!uiStateHydrated) return;
@@ -931,6 +941,7 @@ export function AuthFilesPage() {
                     statusUpdating={statusUpdating}
                     quotaFilterType={quotaFilterType}
                     statusBarCache={statusBarCache}
+                    onQuotaChanged={persistQuotaCacheVoid}
                     onShowModels={showModels}
                     onDownload={handleDownload}
                     onOpenPrefixProxyEditor={openPrefixProxyEditor}
