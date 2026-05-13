@@ -246,6 +246,31 @@ export interface CodexQuotaState {
   errorStatus?: number;
 }
 
+export interface MonitoringAccountQuotaWindow {
+  id: string;
+  label: string;
+  remainingPercent: number | null;
+  resetLabel: string;
+  usageLabel: string | null;
+}
+
+export interface MonitoringAccountQuotaEntry {
+  key: string;
+  authLabel: string;
+  fileName: string;
+  planType: string | null;
+  windows: MonitoringAccountQuotaWindow[];
+  error?: string;
+}
+
+export interface MonitoringAccountQuotaState {
+  status: 'idle' | 'loading' | 'success' | 'error';
+  targetKey: string;
+  entries: MonitoringAccountQuotaEntry[];
+  error?: string;
+  lastRefreshedAt?: number;
+}
+
 // Kimi API payload types
 export interface KimiUsageDetail {
   used?: number;

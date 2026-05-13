@@ -85,12 +85,15 @@ import { useUsageData } from '@/features/monitoring/hooks/useUsageData';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useInterval } from '@/hooks/useInterval';
 import { apiCallApi, authFilesApi, getApiCallErrorMessage } from '@/services/api';
-import { useAuthStore, useConfigStore, useNotificationStore } from '@/stores';
+import { useAuthStore, useConfigStore, useNotificationStore, useQuotaStore } from '@/stores';
 import type {
   AuthFileItem,
   CodexRateLimitInfo,
   CodexUsagePayload,
   CodexUsageWindow,
+  MonitoringAccountQuotaEntry,
+  MonitoringAccountQuotaState,
+  MonitoringAccountQuotaWindow,
 } from '@/types';
 import { formatFileSize, maskSensitiveText } from '@/utils/format';
 import type { StatusBarData, StatusBlockDetail } from '@/utils/recentRequests';
@@ -191,31 +194,6 @@ type RealtimeLogRow = MonitoringEventRow & {
   successRate: number;
   streamKey: string;
   recentPattern: boolean[];
-};
-
-type AccountQuotaWindow = {
-  id: string;
-  label: string;
-  remainingPercent: number | null;
-  resetLabel: string;
-  usageLabel: string | null;
-};
-
-type AccountQuotaEntry = {
-  key: string;
-  authLabel: string;
-  fileName: string;
-  planType: string | null;
-  windows: AccountQuotaWindow[];
-  error?: string;
-};
-
-type AccountQuotaState = {
-  status: 'idle' | 'loading' | 'success' | 'error';
-  targetKey: string;
-  entries: AccountQuotaEntry[];
-  error?: string;
-  lastRefreshedAt?: number;
 };
 
 type AccountOverviewColumn = {
@@ -1898,9 +1876,8 @@ export function MonitoringCenterPage() {
   const [usageImporting, setUsageImporting] = useState(false);
   const [priceModel, setPriceModel] = useState('');
   const [priceDraft, setPriceDraft] = useState<PriceDraft>(() => createPriceDraft());
-  const [accountQuotaStates, setAccountQuotaStates] = useState<Record<string, AccountQuotaState>>(
-    {}
-  );
+  const accountQuotaStates = useQuotaStore((state) => state.monitoringAccountQuota);
+  const setAccountQuotaStates = useQuotaStore((state) => state.setMonitoringAccountQuota);
   const initialAccountOverviewUiState = useRef(readAccountOverviewUiState());
   const [accountOverviewMode, setAccountOverviewMode] = useState<MonitoringAccountOverviewMode>(
     initialAccountOverviewUiState.current.mode
