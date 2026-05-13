@@ -46,6 +46,19 @@ export interface MonitoringQuotaCacheResponse {
   accounts: Record<string, unknown>;
 }
 
+export interface QuotaCachePayload {
+  antigravityQuota?: Record<string, unknown>;
+  claudeQuota?: Record<string, unknown>;
+  codexQuota?: Record<string, unknown>;
+  geminiCliQuota?: Record<string, unknown>;
+  kimiQuota?: Record<string, unknown>;
+  monitoringAccountQuota?: Record<string, unknown>;
+}
+
+export interface QuotaCacheResponse {
+  cache: QuotaCachePayload;
+}
+
 export interface ModelPriceSyncResponse extends ModelPricesResponse {
   source?: string;
   imported: number;
@@ -181,6 +194,35 @@ export const usageServiceApi = {
     await axios.put(
       buildUrl(base, '/v0/management/monitoring/account-quotas'),
       { accounts },
+      {
+        timeout: USAGE_SERVICE_TIMEOUT_MS,
+        headers: authHeaders(managementKey),
+      }
+    );
+  },
+
+  getQuotaCache: async (
+    base: string,
+    managementKey?: string
+  ): Promise<QuotaCacheResponse> => {
+    const response = await axios.get<QuotaCacheResponse>(
+      buildUrl(base, '/v0/management/quota-cache'),
+      {
+        timeout: USAGE_SERVICE_TIMEOUT_MS,
+        headers: authHeaders(managementKey),
+      }
+    );
+    return response.data;
+  },
+
+  saveQuotaCache: async (
+    base: string,
+    cache: QuotaCachePayload,
+    managementKey?: string
+  ): Promise<void> => {
+    await axios.put(
+      buildUrl(base, '/v0/management/quota-cache'),
+      { cache },
       {
         timeout: USAGE_SERVICE_TIMEOUT_MS,
         headers: authHeaders(managementKey),

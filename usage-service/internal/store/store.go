@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -24,6 +25,8 @@ type Setup struct {
 }
 
 const monitoringAccountQuotaCacheKey = "monitoring_account_quota_cache"
+const quotaCacheKey = "quota_cache"
+const quotaAutoDisabledFilesKey = "quota_auto_disabled_files"
 
 type InsertResult struct {
 	Inserted int `json:"inserted"`
@@ -264,6 +267,77 @@ func (s *Store) LoadMonitoringAccountQuotaCache(ctx context.Context) (json.RawMe
 		return json.RawMessage([]byte(`{}`)), true, nil
 	}
 	return json.RawMessage(trimmed), true, nil
+}
+
+func (s *Store) SaveQuotaCache(ctx context.Context, payload json.RawMessage) error {
+	if len(payload) == 0 {
+		payload = json.RawMessage([]byte(`{}`))
+	}
+	_, err := s.db.ExecContext(
+		ctx,
+		`insert into settings(key, value, updated_at_ms)
+		 values(?, ?, ?)
+		 on conflict(key) do update set value = excluded.value, updated_at_ms = excluded.updated_at_ms`,
+		quotaCacheKey,
+		string(payload),
+		time.Now().UnixMilli(),
+	)
+	return err
+}
+
+func (s *Store) LoadQuotaCache(ctx context.Context) (json.RawMessage, bool, error) {
+	var raw string
+	err := s.db.QueryRowContext(ctx, `select value from settings where key = ?`, quotaCacheKey).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	trimmed := []byte(raw)
+	if len(trimmed) == 0 {
+		return json.RawMessage([]byte(`{}`)), true, nil
+	}
+	return json.RawMessage(trimmed), true, nil
+}
+
+func (s *Store) SaveQuotaAutoDisabledFiles(ctx context.Context, files map[string]int64) error {
+	if files == nil {
+		files = map[string]int64{}
+	}
+	data, err := json.Marshal(files)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(
+		ctx,
+		`insert into settings(key, value, updated_at_ms)
+		 values(?, ?, ?)
+		 on conflict(key) do update set value = excluded.value, updated_at_ms = excluded.updated_at_ms`,
+		quotaAutoDisabledFilesKey,
+		string(data),
+		time.Now().UnixMilli(),
+	)
+	return err
+}
+
+func (s *Store) LoadQuotaAutoDisabledFiles(ctx context.Context) (map[string]int64, error) {
+	var raw string
+	err := s.db.QueryRowContext(ctx, `select value from settings where key = ?`, quotaAutoDisabledFilesKey).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return map[string]int64{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]int64{}
+	if strings.TrimSpace(raw) == "" {
+		return out, nil
+	}
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (s *Store) LoadModelPrices(ctx context.Context) (map[string]ModelPrice, error) {

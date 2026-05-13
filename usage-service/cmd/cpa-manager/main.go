@@ -48,11 +48,26 @@ func main() {
 		log.Printf("load setup: %v", err)
 	}
 
+	apiServer := httpapi.New(cfg, db, manager)
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.New(cfg, db, manager).Handler(),
+		Handler:           apiServer.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+		_ = apiServer.ReconcileQuotaDrivenAuthState(context.Background())
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				_ = apiServer.ReconcileQuotaDrivenAuthState(context.Background())
+			}
+		}
+	}()
 
 	go func() {
 		log.Printf("cpa-manager listening on %s", cfg.HTTPAddr)

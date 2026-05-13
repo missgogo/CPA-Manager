@@ -66,6 +66,10 @@ type monitoringQuotaCacheRequest struct {
 	Accounts json.RawMessage `json:"accounts"`
 }
 
+type quotaCacheRequest struct {
+	Cache json.RawMessage `json:"cache"`
+}
+
 func New(cfg config.Config, store *store.Store, collector *collector.Manager) *Server {
 	return &Server{
 		cfg:       cfg,
@@ -98,6 +102,10 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasPrefix(r.URL.Path, "/v0/management/monitoring/account-quotas") {
 		s.withCORS(s.handleMonitoringAccountQuotas)(w, r)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/v0/management/quota-cache") {
+		s.withCORS(s.handleQuotaCache)(w, r)
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/v0/management/usage") {
@@ -163,6 +171,164 @@ func (s *Server) handleMonitoringAccountQuotas(w http.ResponseWriter, r *http.Re
 	default:
 		methodNotAllowed(w)
 	}
+}
+
+func (s *Server) handleQuotaCache(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeIfConfigured(w, r) {
+		return
+	}
+
+	path := strings.TrimRight(r.URL.Path, "/")
+	switch {
+	case path == "/v0/management/quota-cache" && r.Method == http.MethodGet:
+		raw, ok, err := s.store.LoadQuotaCache(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		if !ok || len(raw) == 0 {
+			writeJSON(w, http.StatusOK, map[string]any{"cache": map[string]any{}})
+			return
+		}
+		var payload any
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"cache": payload})
+	case path == "/v0/management/quota-cache" && r.Method == http.MethodPut:
+		var req quotaCacheRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if len(req.Cache) == 0 {
+			req.Cache = json.RawMessage([]byte(`{}`))
+		}
+		if !json.Valid(req.Cache) {
+			writeError(w, http.StatusBadRequest, errors.New("cache must be valid json"))
+			return
+		}
+		if err := s.store.SaveQuotaCache(r.Context(), req.Cache); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		go s.reconcileQuotaDrivenAuthState(context.Background())
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	default:
+		methodNotAllowed(w)
+	}
+}
+
+func (s *Server) ReconcileQuotaDrivenAuthState(ctx context.Context) error {
+	return s.reconcileQuotaDrivenAuthState(ctx)
+}
+
+func (s *Server) reconcileQuotaDrivenAuthState(ctx context.Context) error {
+	setup, ok, err := s.resolveSetup(ctx)
+	if err != nil || !ok || strings.TrimSpace(setup.CPAUpstreamURL) == "" || strings.TrimSpace(setup.ManagementKey) == "" {
+		return err
+	}
+
+	raw, ok, err := s.store.LoadQuotaCache(ctx)
+	if err != nil || !ok || len(raw) == 0 {
+		return err
+	}
+
+	var payload struct {
+		CodexQuota map[string]struct {
+			Status  string `json:"status"`
+			Windows []struct {
+				UsedPercent float64 `json:"usedPercent"`
+				ResetAtMS   *int64  `json:"resetAtMs"`
+			} `json:"windows"`
+		} `json:"codexQuota"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return err
+	}
+
+	now := time.Now().UnixMilli()
+	desiredDisabled := map[string]int64{}
+	for fileName, state := range payload.CodexQuota {
+		if strings.TrimSpace(fileName) == "" || state.Status != "success" {
+			continue
+		}
+		var skipUntil int64
+		for _, window := range state.Windows {
+			if window.UsedPercent < 100 || window.ResetAtMS == nil || *window.ResetAtMS <= now {
+				continue
+			}
+			if *window.ResetAtMS > skipUntil {
+				skipUntil = *window.ResetAtMS
+			}
+		}
+		if skipUntil > now {
+			desiredDisabled[fileName] = skipUntil
+		}
+	}
+
+	autoDisabled, err := s.store.LoadQuotaAutoDisabledFiles(ctx)
+	if err != nil {
+		return err
+	}
+
+	for fileName, skipUntil := range desiredDisabled {
+		if existingUntil, ok := autoDisabled[fileName]; ok && existingUntil == skipUntil {
+			continue
+		}
+		if err := s.setCPAAuthDisabled(ctx, setup, fileName, true); err != nil {
+			continue
+		}
+		autoDisabled[fileName] = skipUntil
+	}
+
+	for fileName, skipUntil := range autoDisabled {
+		if nextUntil, keepDisabled := desiredDisabled[fileName]; keepDisabled && nextUntil > now {
+			autoDisabled[fileName] = nextUntil
+			continue
+		}
+		if skipUntil > now {
+			// window no longer asks for disable, enable immediately
+		}
+		if err := s.setCPAAuthDisabled(ctx, setup, fileName, false); err != nil {
+			continue
+		}
+		delete(autoDisabled, fileName)
+	}
+
+	return s.store.SaveQuotaAutoDisabledFiles(ctx, autoDisabled)
+}
+
+func (s *Server) setCPAAuthDisabled(ctx context.Context, setup store.Setup, fileName string, disabled bool) error {
+	base := strings.TrimRight(strings.TrimSpace(setup.CPAUpstreamURL), "/")
+	if base == "" {
+		return errors.New("missing cpa upstream url")
+	}
+	reqBody, err := json.Marshal(map[string]any{
+		"name":     fileName,
+		"disabled": disabled,
+	})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, base+"/v0/management/auth-files/status", strings.NewReader(string(reqBody)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+setup.ManagementKey)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return errors.New("cpa auth status update failed: " + string(body))
+	}
+	return nil
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

@@ -32,6 +32,7 @@ import {
   useThemeStore,
 } from '@/stores';
 import { triggerHeaderRefresh } from '@/hooks/useHeaderRefresh';
+import { useQuotaServiceSync } from '@/hooks/useQuotaServiceSync';
 import { LANGUAGE_LABEL_KEYS, LANGUAGE_ORDER } from '@/utils/constants';
 import { isSupportedLanguage } from '@/utils/language';
 import type { Theme } from '@/types';
@@ -209,6 +210,7 @@ const THEME_CARDS: Array<{
 ];
 
 export function MainLayout() {
+  useQuotaServiceSync();
   const { t } = useTranslation();
   const { showNotification } = useNotificationStore();
   const location = useLocation();

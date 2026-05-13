@@ -256,6 +256,7 @@ const buildCodexQuotaWindows = (payload: CodexUsagePayload, t: TFunction): Codex
   ) => {
     if (!window) return;
     const resetLabel = formatCodexResetLabel(window);
+    const resetAtMs = normalizeNumberValue(window.reset_at ?? window.resetAt);
     const usedPercentRaw = normalizeNumberValue(window.used_percent ?? window.usedPercent);
     const isLimitReached = Boolean(limitReached) || allowed === false;
     const usedPercent = usedPercentRaw ?? (isLimitReached && resetLabel !== '-' ? 100 : null);
@@ -266,6 +267,7 @@ const buildCodexQuotaWindows = (payload: CodexUsagePayload, t: TFunction): Codex
       labelParams,
       usedPercent,
       resetLabel,
+      resetAtMs,
     });
   };
 
