@@ -62,6 +62,10 @@ type modelPricesSyncRequest struct {
 	Models []string `json:"models"`
 }
 
+type monitoringQuotaCacheRequest struct {
+	Accounts json.RawMessage `json:"accounts"`
+}
+
 func New(cfg config.Config, store *store.Store, collector *collector.Manager) *Server {
 	return &Server{
 		cfg:       cfg,
@@ -92,6 +96,10 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		s.withCORS(s.handleModelPrices)(w, r)
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, "/v0/management/monitoring/account-quotas") {
+		s.withCORS(s.handleMonitoringAccountQuotas)(w, r)
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/v0/management/usage") {
 		s.withCORS(s.handleUsage)(w, r)
 		return
@@ -109,6 +117,52 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.NotFound(w, r)
+}
+
+func (s *Server) handleMonitoringAccountQuotas(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeIfConfigured(w, r) {
+		return
+	}
+
+	path := strings.TrimRight(r.URL.Path, "/")
+	switch {
+	case path == "/v0/management/monitoring/account-quotas" && r.Method == http.MethodGet:
+		raw, ok, err := s.store.LoadMonitoringAccountQuotaCache(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		if !ok || len(raw) == 0 {
+			writeJSON(w, http.StatusOK, map[string]any{"accounts": map[string]any{}})
+			return
+		}
+		var payload any
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"accounts": payload})
+	case path == "/v0/management/monitoring/account-quotas" && r.Method == http.MethodPut:
+		var req monitoringQuotaCacheRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if len(req.Accounts) == 0 {
+			req.Accounts = json.RawMessage([]byte(`{}`))
+		}
+		if !json.Valid(req.Accounts) {
+			writeError(w, http.StatusBadRequest, errors.New("accounts must be valid json"))
+			return
+		}
+		if err := s.store.SaveMonitoringAccountQuotaCache(r.Context(), req.Accounts); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	default:
+		methodNotAllowed(w)
+	}
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

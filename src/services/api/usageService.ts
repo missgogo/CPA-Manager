@@ -42,6 +42,10 @@ export interface ModelPricesResponse {
   prices: Record<string, ModelPrice>;
 }
 
+export interface MonitoringQuotaCacheResponse {
+  accounts: Record<string, unknown>;
+}
+
 export interface ModelPriceSyncResponse extends ModelPricesResponse {
   source?: string;
   imported: number;
@@ -153,6 +157,35 @@ export const usageServiceApi = {
       }
     );
     return response.data;
+  },
+
+  getMonitoringQuotaCache: async (
+    base: string,
+    managementKey?: string
+  ): Promise<MonitoringQuotaCacheResponse> => {
+    const response = await axios.get<MonitoringQuotaCacheResponse>(
+      buildUrl(base, '/v0/management/monitoring/account-quotas'),
+      {
+        timeout: USAGE_SERVICE_TIMEOUT_MS,
+        headers: authHeaders(managementKey),
+      }
+    );
+    return response.data;
+  },
+
+  saveMonitoringQuotaCache: async (
+    base: string,
+    accounts: Record<string, unknown>,
+    managementKey?: string
+  ): Promise<void> => {
+    await axios.put(
+      buildUrl(base, '/v0/management/monitoring/account-quotas'),
+      { accounts },
+      {
+        timeout: USAGE_SERVICE_TIMEOUT_MS,
+        headers: authHeaders(managementKey),
+      }
+    );
   },
 
   saveModelPrices: async (

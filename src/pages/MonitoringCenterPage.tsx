@@ -85,7 +85,18 @@ import { useUsageData } from '@/features/monitoring/hooks/useUsageData';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useInterval } from '@/hooks/useInterval';
 import { apiCallApi, authFilesApi, getApiCallErrorMessage } from '@/services/api';
-import { useAuthStore, useConfigStore, useNotificationStore, useQuotaStore } from '@/stores';
+import {
+  isUsageServiceId,
+  normalizeUsageServiceBase,
+  usageServiceApi,
+} from '@/services/api/usageService';
+import {
+  useAuthStore,
+  useConfigStore,
+  useNotificationStore,
+  useQuotaStore,
+  useUsageServiceStore,
+} from '@/stores';
 import type {
   AuthFileItem,
   CodexRateLimitInfo,
@@ -112,6 +123,7 @@ import {
   normalizeAuthIndex,
   type ModelPrice,
 } from '@/utils/usage';
+import { detectApiBaseFromLocation } from '@/utils/connection';
 import { downloadBlob } from '@/utils/download';
 import styles from './MonitoringCenterPage.module.scss';
 
@@ -1851,8 +1863,12 @@ export function AccountOverviewCard({
 
 export function MonitoringCenterPage() {
   const { t, i18n } = useTranslation();
+  const apiBase = useAuthStore((state) => state.apiBase);
   const config = useConfigStore((state) => state.config);
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
+  const managementKey = useAuthStore((state) => state.managementKey);
+  const usageServiceEnabled = useUsageServiceStore((state) => state.enabled);
+  const usageServiceBase = useUsageServiceStore((state) => state.serviceBase);
   const showNotification = useNotificationStore((state) => state.showNotification);
   const showConfirmation = useNotificationStore((state) => state.showConfirmation);
   const [timeRange, setTimeRange] = useState<MonitoringTimeRange>('today');
@@ -1967,6 +1983,55 @@ export function MonitoringCenterPage() {
     loadUsage,
   } = useUsageData();
 
+  const resolveUsageServiceBase = useCallback(async (): Promise<string> => {
+    if (usageServiceEnabled && usageServiceBase) {
+      return usageServiceBase;
+    }
+
+    const candidates = Array.from(
+      new Set(
+        [apiBase, detectApiBaseFromLocation()]
+          .map((value) => normalizeUsageServiceBase(value || ''))
+          .filter(Boolean)
+      )
+    );
+
+    for (const candidate of candidates) {
+      try {
+        const info = await usageServiceApi.getInfo(candidate);
+        if (isUsageServiceId(info.service)) {
+          return candidate;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    return '';
+  }, [apiBase, usageServiceBase, usageServiceEnabled]);
+
+  const loadServerAccountQuotaCache = useCallback(async () => {
+    const serviceBase = await resolveUsageServiceBase();
+    if (!serviceBase) return;
+    const response = await usageServiceApi.getMonitoringQuotaCache(serviceBase, managementKey);
+    const accounts =
+      response && response.accounts && typeof response.accounts === 'object' ? response.accounts : {};
+    setAccountQuotaStates(accounts as Record<string, AccountQuotaState>);
+  }, [managementKey, resolveUsageServiceBase, setAccountQuotaStates]);
+
+  const saveServerAccountQuotaCache = useCallback(
+    async (accounts: Record<string, AccountQuotaState>) => {
+      const serviceBase = await resolveUsageServiceBase();
+      if (!serviceBase) return;
+      await usageServiceApi.saveMonitoringQuotaCache(
+        serviceBase,
+        accounts as Record<string, unknown>,
+        managementKey
+      );
+    },
+    [managementKey, resolveUsageServiceBase]
+  );
+
   const {
     loading: monitoringLoading,
     error: monitoringError,
@@ -2015,6 +2080,11 @@ export function MonitoringCenterPage() {
   useEffect(() => {
     accountQuotaStatesRef.current = accountQuotaStates;
   }, [accountQuotaStates]);
+
+  useEffect(() => {
+    if (connectionStatus !== 'connected') return;
+    void loadServerAccountQuotaCache().catch(() => {});
+  }, [connectionStatus, loadServerAccountQuotaCache]);
 
   useEffect(() => {
     writeAccountOverviewUiState({
@@ -2467,15 +2537,17 @@ export function MonitoringCenterPage() {
 
       if (targets.length === 0) {
         if (accountQuotaRequestIdsRef.current[account] !== requestId) return;
-        setAccountQuotaStates((previous) => ({
-          ...previous,
+        const nextState = {
+          ...accountQuotaStatesRef.current,
           [account]: {
             status: 'success',
             targetKey,
             entries: [],
             lastRefreshedAt: Date.now(),
           },
-        }));
+        } satisfies Record<string, AccountQuotaState>;
+        setAccountQuotaStates(() => nextState);
+        void saveServerAccountQuotaCache(nextState);
         return;
       }
 
@@ -2505,8 +2577,8 @@ export function MonitoringCenterPage() {
       });
 
       const hasSuccess = entries.some((entry) => !entry.error);
-      setAccountQuotaStates((previous) => ({
-        ...previous,
+      const nextState = {
+        ...accountQuotaStatesRef.current,
         [account]: {
           status: hasSuccess ? 'success' : 'error',
           targetKey,
@@ -2514,9 +2586,11 @@ export function MonitoringCenterPage() {
           error: hasSuccess ? '' : entries[0]?.error || t('common.unknown_error'),
           lastRefreshedAt: Date.now(),
         },
-      }));
+      } satisfies Record<string, AccountQuotaState>;
+      setAccountQuotaStates(() => nextState);
+      void saveServerAccountQuotaCache(nextState);
     },
-    [accountQuotaTargetsByAccount, t]
+    [accountQuotaTargetsByAccount, saveServerAccountQuotaCache, setAccountQuotaStates, t]
   );
 
   const toggleAccountExpanded = useCallback(

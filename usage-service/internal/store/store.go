@@ -23,6 +23,8 @@ type Setup struct {
 	PopSide        string `json:"popSide,omitempty"`
 }
 
+const monitoringAccountQuotaCacheKey = "monitoring_account_quota_cache"
+
 type InsertResult struct {
 	Inserted int `json:"inserted"`
 	Skipped  int `json:"skipped"`
@@ -230,6 +232,38 @@ func (s *Store) LoadSetup(ctx context.Context) (Setup, bool, error) {
 		return Setup{}, false, err
 	}
 	return setup, true, nil
+}
+
+func (s *Store) SaveMonitoringAccountQuotaCache(ctx context.Context, payload json.RawMessage) error {
+	if len(payload) == 0 {
+		payload = json.RawMessage([]byte(`{}`))
+	}
+	_, err := s.db.ExecContext(
+		ctx,
+		`insert into settings(key, value, updated_at_ms)
+		 values(?, ?, ?)
+		 on conflict(key) do update set value = excluded.value, updated_at_ms = excluded.updated_at_ms`,
+		monitoringAccountQuotaCacheKey,
+		string(payload),
+		time.Now().UnixMilli(),
+	)
+	return err
+}
+
+func (s *Store) LoadMonitoringAccountQuotaCache(ctx context.Context) (json.RawMessage, bool, error) {
+	var raw string
+	err := s.db.QueryRowContext(ctx, `select value from settings where key = ?`, monitoringAccountQuotaCacheKey).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	trimmed := []byte(raw)
+	if len(trimmed) == 0 {
+		return json.RawMessage([]byte(`{}`)), true, nil
+	}
+	return json.RawMessage(trimmed), true, nil
 }
 
 func (s *Store) LoadModelPrices(ctx context.Context) (map[string]ModelPrice, error) {
