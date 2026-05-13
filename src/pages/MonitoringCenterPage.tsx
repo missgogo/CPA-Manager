@@ -91,9 +91,9 @@ import type {
   CodexRateLimitInfo,
   CodexUsagePayload,
   CodexUsageWindow,
-  MonitoringAccountQuotaEntry,
-  MonitoringAccountQuotaState,
-  MonitoringAccountQuotaWindow,
+  MonitoringAccountQuotaEntry as AccountQuotaEntry,
+  MonitoringAccountQuotaState as AccountQuotaState,
+  MonitoringAccountQuotaWindow as AccountQuotaWindow,
 } from '@/types';
 import { formatFileSize, maskSensitiveText } from '@/utils/format';
 import type { StatusBarData, StatusBlockDetail } from '@/utils/recentRequests';
