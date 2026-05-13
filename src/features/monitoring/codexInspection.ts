@@ -1,10 +1,19 @@
 import type { AxiosRequestConfig } from 'axios';
 import { authFilesApi } from '@/services/api/authFiles';
 import { apiCallApi, getApiCallErrorMessage } from '@/services/api/apiCall';
-import type { AuthFileItem, Config, CodexRateLimitInfo, CodexUsageWindow } from '@/types';
+import type {
+  AuthFileItem,
+  Config,
+  CodexQuotaState,
+  CodexQuotaWindow,
+  CodexRateLimitInfo,
+  CodexUsagePayload,
+  CodexUsageWindow,
+} from '@/types';
 import {
   CODEX_REQUEST_HEADERS,
   CODEX_USAGE_URL,
+  formatCodexResetLabel,
   isDisabledAuthFile,
   normalizeNumberValue,
   parseCodexUsagePayload,
@@ -63,6 +72,7 @@ export interface CodexInspectionResultItem extends CodexInspectionAccount {
   usedPercent: number | null;
   isQuota: boolean;
   error: string;
+  quotaState?: CodexQuotaState;
 }
 
 export interface CodexInspectionSummary {
@@ -471,6 +481,27 @@ const deriveUsedPercent = (rateLimit?: CodexRateLimitInfo | null): number | null
   return Math.max(...values);
 };
 
+const buildInspectionCodexQuotaWindows = (payload: CodexUsagePayload): CodexQuotaWindow[] => {
+  const rateLimit = payload.rate_limit ?? payload.rateLimit ?? undefined;
+  const windows: CodexQuotaWindow[] = [];
+  const { fiveHourWindow, weeklyWindow } = pickClassifiedWindows(rateLimit);
+
+  const addWindow = (id: string, label: string, window?: CodexUsageWindow | null) => {
+    if (!window) return;
+    windows.push({
+      id,
+      label,
+      usedPercent: normalizeNumberValue(window.used_percent ?? window.usedPercent),
+      resetLabel: formatCodexResetLabel(window),
+      resetAtMs: normalizeNumberValue(window.reset_at ?? window.resetAt),
+    });
+  };
+
+  addWindow('five-hour', '5h', fiveHourWindow);
+  addWindow('weekly', 'weekly', weeklyWindow);
+  return windows;
+};
+
 const isRateLimitReached = (rateLimit?: CodexRateLimitInfo | null) => {
   if (!rateLimit) return false;
   if (rateLimit.allowed === false) return true;
@@ -708,6 +739,11 @@ const inspectSingleAccount = async (
       usedPercent: decision.usedPercent,
       isQuota: decision.isQuota,
       error: '',
+      quotaState: {
+        status: 'success',
+        windows: buildInspectionCodexQuotaWindows(payload ?? {}),
+        planType: payload?.plan_type ?? payload?.planType ?? null,
+      },
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error || '探测失败');

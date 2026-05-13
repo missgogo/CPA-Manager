@@ -35,7 +35,7 @@ import {
   type CodexInspectionRunResult,
   type CodexInspectionSession,
 } from '@/features/monitoring/codexInspection';
-import { useAuthStore, useConfigStore, useNotificationStore } from '@/stores';
+import { useAuthStore, useConfigStore, useNotificationStore, useQuotaStore } from '@/stores';
 import styles from './CodexInspectionPage.module.scss';
 
 type RunStatus = 'idle' | 'running' | 'paused' | 'success' | 'error';
@@ -199,6 +199,7 @@ export function CodexInspectionPage() {
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
   const showNotification = useNotificationStore((state) => state.showNotification);
   const showConfirmation = useNotificationStore((state) => state.showConfirmation);
+  const setCodexQuota = useQuotaStore((state) => state.setCodexQuota);
 
   const [inspectionSettings, setInspectionSettings] = useState<CodexInspectionConfigurableSettings>(() =>
     loadCodexInspectionConfigurableSettings(config)
@@ -246,6 +247,22 @@ export function CodexInspectionPage() {
     ]);
   }, []);
 
+  const syncQuotaFromInspectionResults = useCallback(
+    (items: CodexInspectionResultItem[]) => {
+      const updates = items.filter((item) => item.quotaState && item.fileName);
+      if (updates.length === 0) return;
+      setCodexQuota((previous) => {
+        const next = { ...previous };
+        updates.forEach((item) => {
+          if (!item.quotaState) return;
+          next[item.fileName] = item.quotaState;
+        });
+        return next;
+      });
+    },
+    [setCodexQuota]
+  );
+
   const scrollLogsToBottom = useCallback(() => {
     const element = logListRef.current;
     if (!element) return;
@@ -274,6 +291,7 @@ export function CodexInspectionPage() {
           if (activeSessionIdRef.current !== sessionId) return;
           const nextActionableResults = nextResult.results.filter(isSuggestedAction);
           setResult(nextResult);
+          syncQuotaFromInspectionResults(nextResult.results);
           setProgress(session.getProgress());
           setRunStatus('success');
           setLogsCollapsed(true);
@@ -316,7 +334,7 @@ export function CodexInspectionPage() {
           showNotification(message, 'error');
         });
     },
-    [appendLog, showNotification, t]
+    [appendLog, showNotification, syncQuotaFromInspectionResults, t]
   );
 
   const startFreshInspection = useCallback(
@@ -370,6 +388,7 @@ export function CodexInspectionPage() {
         onResultsChange: (nextResult) => {
           if (activeSessionIdRef.current !== session.id) return;
           setResult(nextResult);
+          syncQuotaFromInspectionResults(nextResult.results);
         },
       });
 
@@ -418,7 +437,7 @@ export function CodexInspectionPage() {
     setProgress(createIdleProgressSnapshot());
     setResult(null);
     setLogsCollapsed(false);
-  }, [appendLog, t]);
+  }, [appendLog, syncQuotaFromInspectionResults, t]);
 
   const executeItems = useCallback(
     async (
@@ -463,6 +482,7 @@ export function CodexInspectionPage() {
         }
         const nextResult = applyCodexInspectionExecutionResult(currentResult, execution);
         setResult(nextResult);
+        syncQuotaFromInspectionResults(nextResult.results);
 
         if (source === 'auto') {
           const successCount = execution.outcomes.filter((item) => item.success).length;
@@ -487,7 +507,7 @@ export function CodexInspectionPage() {
         setExecuting(false);
       }
     },
-    [appendLog, result, showNotification, t]
+    [appendLog, result, showNotification, syncQuotaFromInspectionResults, t]
   );
 
   useEffect(() => {
